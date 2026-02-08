@@ -11,6 +11,9 @@ Features:
 - stores notes as JSON in user home (~/.snapnotes/notes.json)
 - small and easy to extend
 
+What this file contains:
+- README (in this file header)
+- A single-file CLI app (works with Python 3.8+)
 Usage examples:
   python snapnotes.py add "Buy milk" --tags shopping,home
   python snapnotes.py list
