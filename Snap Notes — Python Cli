@@ -6,11 +6,6 @@ What this file contains:
 - README (in this file header)
 - A single-file CLI app (works with Python 3.8+)
 
-Features:
-- add, list, view, delete, search, export commands
-- stores notes as JSON in user home (~/.snapnotes/notes.json)
-- small and easy to extend
-
 What this file contains:
 - README (in this file header)
 - A single-file CLI app (works with Python 3.8+)
@@ -22,7 +17,10 @@ Usage examples:
 
 License: MIT
 """
-
+Features:
+- add, list, view, delete, search, export commands
+- stores notes as JSON in user home (~/.snapnotes/notes.json)
+- small and easy to extend
 from __future__ import annotations
 import argparse
 import json
