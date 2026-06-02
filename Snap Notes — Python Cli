@@ -78,7 +78,10 @@ def add_note(title: str, body: str, tags: Optional[List[str]]) -> Note:
     data["next_id"] = nid + 1
     save_store(data)
     return note
-
+import argparse
+import json
+import os
+import shutil
 
 def list_notes() -> List[Note]:
     data = load_store()
