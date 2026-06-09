@@ -74,6 +74,14 @@ def add_note(title: str, body: str, tags: Optional[List[str]]) -> Note:
         tags=[t.strip() for t in (tags or []) if t.strip()],
         created_at=datetime.utcnow().isoformat() + 'Z'
     )
+What this file contains:
+- README (in this file header)
+- A single-file CLI app (works with Python 3.8+)
+Usage examples:
+  python snapnotes.py add "Buy milk" --tags shopping,home
+  python snapnotes.py list
+  python snapnotes.py search milk
+  python snapnotes.py export notes.md
     data["notes"].append(asdict(note))
     data["next_id"] = nid + 1
     save_store(data)
