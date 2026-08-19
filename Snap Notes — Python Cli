@@ -42,7 +42,10 @@ class Note:
     body: str
     tags: List[str]
     created_at: str
-
+python snapnotes.py add "Buy milk" --tags shopping,home
+  python snapnotes.py list
+  python snapnotes.py search milk
+  python snapnotes.py export notes.md
 
 def ensure_store() -> None:
     APP_DIR.mkdir(parents=True, exist_ok=True)
