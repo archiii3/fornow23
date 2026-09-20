@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+
+"""
+Logmint
+-------
+A lightweight, zero-dependency log analyzer.
+
+Usage:
+    python logmint.py access.log
+    python logmint.py access.log --top 10
+    python logmint.py access.log --export report.json
+
+Supported patterns:
+    Apache/Nginx access logs
+    Common application logs containing:
+        IP addresses
+        HTTP methods
+        status codes
+        response times
+        ERROR/WARN/INFO levels
+"""
+
+import argparse
+import json
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+
+VERSION = "1.0.0"
+
+
+# Common patterns
+IP_PATTERN = re.compile(
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+)
+
+STATUS_PATTERN = re.compile(
+    r"\b([1-5]\d{2})\b"
+)
+
+METHOD_PATTERN = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b"
+)
+
+TIME_PATTERN = re.compile(
+    r"(?:response[_ ]?time|duration|latency|elapsed)"
+    r"\s*[:=]\s*(\d+(?:\.\d+)?)\s*(ms|s)?",
+    re.IGNORECASE
+)
+
+LEVEL_PATTERN = re.compile(
+    r"\b(ERROR|WARN|WARNING|INFO|DEBUG|CRITICAL|FATAL)\b",
+    re.IGNORECASE
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Logmint - lightweight log analyzer"
+    )
+
+    parser.add_argument(
+        "file",
+        help="Path to the log file"
+    )
+
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=5,
+        help="Number of top results to display (default: 5)"
+    )
+
+    parser.add_argument(
+        "--export",
+        metavar="FILE",
+        help="Export report as JSON"
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"Logmint {VERSION}"
+    )
+
+    return parser.parse_args()
+
+
+def is_valid_ip(ip):
+    parts = ip.split(".")
+
+    if len(parts) != 4:
+        return False
+
+    try:
+        return all(0 <= int(part) <= 255 for part in parts)
+    except ValueError:
+        return False
+
+
+def analyze_file(path):
+    stats = {
+        "lines": 0,
+        "ips": Counter(),
+        "methods": Counter(),
+        "status_codes": Counter(),
+        "levels": Counter(),
+        "response_times_ms": [],
+    }
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as file:
+            for line in file:
+                stats["lines"] += 1
+
+                # IP addresses
+                for ip in IP_PATTERN.findall(line):
+                    if is_valid_ip(ip):
+                        stats["ips"][ip] += 1
+
+                # HTTP methods
+                for method in METHOD_PATTERN.findall(line):
+                    stats["methods"][method] += 1
+
+                # Status codes
+                for code in STATUS_PATTERN.findall(line):
+                    code_int = int(code)
+
+                    # Only treat realistic HTTP codes as status codes
+                    if 100 <= code_int <= 599:
+                        stats["status_codes"][code] += 1
+
+                # Log levels
+                for level in LEVEL_PATTERN.findall(line):
+                    stats["levels"][level.upper()] += 1
+
+                # Response time
+                match = TIME_PATTERN.search(line)
+
+                if match:
+                    value = float(match.group(1))
+                    unit = (match.group(2) or "ms").lower()
+
+                    if unit == "s":
+                        value *= 1000
+
+                    stats["response_times_ms"].append(value)
+
+    except FileNotFoundError:
+        print(f"Error: file not found: {path}")
+        sys.exit(1)
+
+    except PermissionError:
+        print(f"Error: permission denied: {path}")
+        sys.exit(1)
+
+    return stats
+
+
+def build_report(stats, top):
+    times = stats["response_times_ms"]
+
+    total_requests = sum(stats["methods"].values())
+    successful = sum(
+        count
+        for code, count in stats["status_codes"].items()
+        if code.startswith("2")
+    )
+    redirects = sum(
+        count
+        for code, count in stats["status_codes"].items()
+        if code.startswith("3")
+    )
+    client_errors = sum(
+        count
+        for code, count in stats["status_codes"].items()
+        if code.startswith("4")
+    )
+    server_errors = sum(
+        count
+        for code, count in stats["status_codes"].items()
+        if code.startswith("5")
+    )
+
+    report = {
+        "version": VERSION,
+        "lines": stats["lines"],
+        "requests": total_requests,
+
+        "status": {
+            "successful_2xx": successful,
+            "redirect_3xx": redirects,
+            "client_error_4xx": client_errors,
+            "server_error_5xx": server_errors,
+        },
+
+        "methods": dict(
+            stats["methods"].most_common(top)
+        ),
+
+        "status_codes": dict(
+            stats["status_codes"].most_common(top)
+        ),
+
+        "top_ips": dict(
+            stats["ips"].most_common(top)
+        ),
+
+        "log_levels": dict(
+            stats["levels"].most_common(top)
+        ),
+
+        "response_time": {
+            "samples": len(times),
+            "average_ms": round(sum(times) / len(times), 2)
+            if times else None,
+            "minimum_ms": round(min(times), 2)
+            if times else None,
+            "maximum_ms": round(max(times), 2)
+            if times else None,
+        },
+    }
+
+    return report
+
+
+def print_section(title):
+    print()
+    print(f"--- {title} ---")
+
+
+def print_report(report):
+    print()
+    print("=" * 52)
+    print("                     LOGMINT")
+    print("=" * 52)
+
+    print(f"Lines analyzed : {report['lines']:,}")
+    print(f"Requests found : {report['requests']:,}")
+
+    print_section("HTTP Status")
+
+    status = report["status"]
+
+    print(f"2xx Success    : {status['successful_2xx']:,}")
+    print(f"3xx Redirect   : {status['redirect_3xx']:,}")
+    print(f"4xx Client Err : {status['client_error_4xx']:,}")
+    print(f"5xx Server Err : {status['server_error_5xx']:,}")
+
+    print_section("HTTP Methods")
+
+    if report["methods"]:
+        for method, count in report["methods"].items():
+            print(f"{method:<10} {count:,}")
+    else:
+        print("No HTTP methods detected.")
+
+    print_section("Status Codes")
+
+    if report["status_codes"]:
+        for code, count in report["status_codes"].items():
+            print(f"{code:<10} {count:,}")
+    else:
+        print("No status codes detected.")
+
+    print_section("Top IP Addresses")
+
+    if report["top_ips"]:
+        for ip, count in report["top_ips"].items():
+            print(f"{ip:<20} {count:,}")
+    else:
+        print("No IP addresses detected.")
+
+    print_section("Log Levels")
+
+    if report["log_levels"]:
+        for level, count in report["log_levels"].items():
+            print(f"{level:<12} {count:,}")
+    else:
+        print("No log levels detected.")
+
+    print_section("Response Time")
+
+    response = report["response_time"]
+
+    if response["samples"]:
+        print(f"Samples       : {response['samples']:,}")
+        print(f"Average       : {response['average_ms']} ms")
+        print(f"Minimum       : {response['minimum_ms']} ms")
+        print(f"Maximum       : {response['maximum_ms']} ms")
+    else:
+        print("No response-time data detected.")
+
+    print()
+    print("=" * 52)
+
+
+def export_report(report, output):
+    try:
+        with open(output, "w", encoding="utf-8") as file:
+            json.dump(
+                report,
+                file,
+                indent=2,
+                ensure_ascii=False
+            )
+
+        print(f"\nReport exported to: {output}")
+
+    except OSError as error:
+        print(f"Error exporting report: {error}")
+        sys.exit(1)
+
+
+def main():
+    args = parse_args()
+
+    path = Path(args.file)
+
+    if not path.is_file():
+        print(f"Error: '{path}' is not a valid file.")
+        sys.exit(1)
+
+    if args.top < 1:
+        print("Error: --top must be greater than 0.")
+        sys.exit(1)
+
+    stats = analyze_file(path)
+    report = build_report(stats, args.top)
+
+    print_report(report)
+
+    if args.export:
+        export_report(report, args.export)
+
+
+if __name__ == "__main__":
+    main()
